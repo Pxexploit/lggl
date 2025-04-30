@@ -1,0 +1,261 @@
+eu tenho esse código da tela do carrinho: <?php
+session_start();
+
+// Dados do banco
+$servername = "localhost";
+$username = "root";
+$password = "";
+$dbname = "sistema_login";
+
+// Conexão
+$conn = new mysqli($servername, $username, $password, $dbname);
+if ($conn->connect_error) {
+    die("Conexão falhou: " . $conn->connect_error);
+}
+
+// Buscar produtos no carrinho
+$ids = array_keys($_SESSION['carrinho'] ?? []);
+$produtos = [];
+
+if (!empty($ids)) {
+    $placeholders = implode(',', array_fill(0, count($ids), '?'));
+    $types = str_repeat('i', count($ids));
+    $stmt = $conn->prepare("
+        SELECT 
+            produto.id_produto AS id,
+            produto.nome, 
+            produto.descricao, 
+            produto.preco, 
+            produto.imagem,
+            loja.nome AS nome_loja,
+            vendedor.nome AS nome_vendedor
+        FROM produto
+        INNER JOIN loja ON produto.id_loja = loja.id_loja
+        INNER JOIN vendedor ON loja.id_loja = vendedor.id_loja
+        WHERE produto.id_produto IN ($placeholders)
+    ");
+    $stmt->bind_param($types, ...$ids);
+    $stmt->execute();
+    $result = $stmt->get_result();
+    while ($row = $result->fetch_assoc()) {
+        $produtos[$row['id']] = $row;
+    }
+}
+
+// Ações do carrinho
+if (isset($_GET['finalizar'])) {
+    $_SESSION['carrinho'] = [];
+    $_SESSION['msg'] = 'Compra finalizada!';
+    header('Location: carrinho.php');
+    exit;
+}
+if (isset($_GET['limpar'])) {
+    $_SESSION['carrinho'] = [];
+    $_SESSION['msg'] = 'Carrinho limpo!';
+    header('Location: carrinho.php');
+    exit;
+}
+
+// Atualizar quantidade
+if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+    $id = $_POST['id'] ?? null;
+    $acao = $_POST['acao'] ?? null;
+
+    if ($id !== null && isset($_SESSION['carrinho'][$id])) {
+        if ($acao === 'aumentar') {
+            $_SESSION['carrinho'][$id]++;
+        } elseif ($acao === 'diminuir' && $_SESSION['carrinho'][$id] > 1) {
+            $_SESSION['carrinho'][$id]--;
+        }
+    }
+    header('Location: carrinho.php');
+    exit;
+}
+?>
+
+<!DOCTYPE html>
+<html lang="pt-br">
+<head>
+    <meta charset="UTF-8">
+    <title>Carrinho</title>
+    <link rel="stylesheet" href="css/carrinho.css">
+    <style>
+        .quantidade-container {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            margin: 10px 0;
+        }
+
+        .quantidade-container p {
+            margin: 0;
+            font-weight: bold;
+            color: #e0dede;
+        }
+
+        .quantidade-controls {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+
+        .quantidade-controls button {
+            padding: 4px 10px;
+            font-size: 18px;
+            cursor: pointer;
+            border: none;
+            background-color: #1f1f1f;
+            color: white;
+            border-radius: 4px;
+            transition: background-color 0.2s ease;
+        }
+
+        .quantidade-controls button:hover:not(:disabled) {
+            background-color: #2d2d2d;
+        }
+
+        .quantidade-controls button:disabled {
+            background-color: #444;
+            cursor: not-allowed;
+            color: #999;
+        }
+
+        .quantidade {
+            font-weight: bold;
+            font-size: 16px;
+        }
+    </style>
+</head>
+<body>
+    <header>
+    <div class="logo"><img src="images/site2.png" alt="Logo" style="width: 4.7rem;"></div>
+    <div class="search-bar">
+        <input type="text" placeholder="Buscar produtos..." id="search-input">
+    </div>
+        <h2>Seu Carrinho</h2>
+    </header>
+
+    <?php if (isset($_SESSION['msg'])): ?>
+        <div class="msg"><?= $_SESSION['msg']; unset($_SESSION['msg']); ?></div>
+    <?php endif; ?>
+
+    <section>
+        <?php if (!empty($_SESSION['carrinho'])): ?>
+            <div class="carrinho">
+                <?php
+                $total = 0;
+                foreach ($_SESSION['carrinho'] as $id => $quantidade):
+                    $produto = $produtos[$id];
+                    $subtotal = $produto['preco'] * $quantidade;
+                    $total += $subtotal;
+                ?>
+                    <div class="product-card">
+                        <img src="uploads/<?= $produto['imagem'] ?>" alt="<?= $produto['nome'] ?>">
+                        <div class="product-details">
+                            <h3 class="product-name"><?= $produto['nome'] ?></h3>
+                            <p class="product-description"><?= $produto['descricao'] ?></p>
+                            <p><strong>Loja:</strong> <?= $produto['nome_loja'] ?></p>
+                            <p><strong>Vendedor:</strong> <?= $produto['nome_vendedor'] ?></p>
+
+                            <div class="price-info" style="margin-top: 10px;">
+                                <p><strong>Preço unitário:</strong> R$ <?= number_format($produto['preco'], 2, ',', '.') ?></p>
+
+                                <div class="quantidade-container">
+                                    <p><strong>Quantidade:</strong></p>
+                                    <div class="quantidade-controls">
+                                        <form method="post" action="carrinho.php" style="display: inline;">
+                                            <input type="hidden" name="id" value="<?= $id ?>">
+                                            <input type="hidden" name="acao" value="diminuir">
+                                            <button type="submit" <?= $quantidade <= 1 ? 'disabled' : '' ?>>−</button>
+                                        </form>
+                                        <span class="quantidade"><?= $quantidade ?></span>
+                                        <form method="post" action="carrinho.php" style="display: inline;">
+                                            <input type="hidden" name="id" value="<?= $id ?>">
+                                            <input type="hidden" name="acao" value="aumentar">
+                                            <button type="submit">+</button>
+                                        </form>
+                                    </div>
+                                </div>
+
+                                <p class="subtotale"><strong>Subtotal:</strong> R$ <?= number_format($subtotal, 2, ',', '.') ?></p>
+                            </div>
+                        </div>
+                    </div>
+                <?php endforeach; ?>
+            </div>
+            <p class="total">Total: R$ <?= number_format($total, 2, ',', '.') ?></p>
+            <div class="botoes">
+                <a class="btn" href="?finalizar=true">Finalizar Compra</a>
+                <a class="btn btn-clear" href="?limpar=true">Limpar Carrinho</a>
+            </div>
+        <?php else: ?>
+            <p>Carrinho vazio.</p>
+        <?php endif; ?>
+    </section>
+
+    <footer>
+    <p class="description">© 2025 TaquaMarket</p>
+    </footer>
+</body>
+</html>
+
+<?php $conn->close(); ?> e ele está salvando as coisas nos cookies do navegador, porém isso nao está vinculado a conta que o usuário cria para no meu sistema do meu banco de dados, eu tenho tipo, se eu troco de computador ou logo em outro navegador, o carrinho não fica salvo, e eu tenho 2 tabelas para adicionar as informções do carrinho, olha esse é meu banco de dados completo: CREATE TABLE cliente (
+    id_cliente INT PRIMARY KEY AUTO_INCREMENT,
+    nome VARCHAR(100) NOT NULL,
+    email VARCHAR(100) NOT NULL UNIQUE,
+    senha VARCHAR(100) NOT NULL
+);
+
+-- Criação da tabela loja
+CREATE TABLE loja (
+    id_loja INT PRIMARY KEY AUTO_INCREMENT,
+    nome VARCHAR(100) NOT NULL,
+    endereco VARCHAR(200) NOT NULL,
+    telefone VARCHAR(20),
+    cnpj VARCHAR(18),
+    cpf VARCHAR(14)
+);
+
+-- Criação da tabela vendedor
+CREATE TABLE vendedor (
+    id_vendedor INT PRIMARY KEY AUTO_INCREMENT,
+    nome VARCHAR(100) NOT NULL,
+    email VARCHAR(100) NOT NULL UNIQUE,
+    senha VARCHAR(100) NOT NULL,
+    id_loja INT,
+    FOREIGN KEY (id_loja) REFERENCES loja(id_loja)
+);
+
+-- Criação da tabela produto
+CREATE TABLE produto (
+    id_produto INT PRIMARY KEY AUTO_INCREMENT,
+    nome VARCHAR(100) NOT NULL,
+    preco DECIMAL(10,2) NOT NULL,
+    descricao TEXT,
+    id_loja INT,
+    imagem VARCHAR(255),
+    FOREIGN KEY (id_loja) REFERENCES loja(id_loja)
+);
+
+-- Criação da tabela venda
+CREATE TABLE venda (
+    id_venda INT PRIMARY KEY AUTO_INCREMENT,
+    total DECIMAL(10,2) NOT NULL,
+    data DATE NOT NULL,
+    id_cliente INT,
+    id_loja INT,
+    status VARCHAR(20) DEFAULT 'aberto',
+    FOREIGN KEY (id_cliente) REFERENCES cliente(id_cliente),
+    FOREIGN KEY (id_loja) REFERENCES loja(id_loja)
+);
+
+-- Criação da tabela item_venda
+CREATE TABLE item_venda (
+    id_item_venda INT PRIMARY KEY AUTO_INCREMENT,
+    id_venda INT,
+    id_produto INT,
+    item_quantidade INT NOT NULL,
+    item_valor DECIMAL(10,2) NOT NULL,
+    FOREIGN KEY (id_venda) REFERENCES venda(id_venda),
+    FOREIGN KEY (id_produto) REFERENCES produto(id_produto)
+); e eu tenho as tabelas de item_venda com os seguintes campos: id_item_venda, id_venda, id_produto, item_quantidade, item_valor com referencias (fks) a: id_venda, id_produto e a tabela de venda com os seguintes campos: id_venda, total, data, id_cliente, id_loja, status com referencias (fks) a: id_cliente e id_loja, tudo isso está relacionado ao banco de dados que envieei anteriormente, e preciso fazer
